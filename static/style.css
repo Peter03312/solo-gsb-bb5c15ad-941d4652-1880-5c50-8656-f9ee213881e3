@@ -365,6 +365,10 @@ td.unalloc-bad { color: #c5221f; font-weight: 600; }
 tr.row-overdue { background: var(--manual-bg); }
 tr.row-overdue td:first-child { border-left: 4px solid var(--manual-border); }
 
+/* 字幕分卷 */
+.col-vl-num { width: 84px; text-align: right; }
+.col-vl-cost { width: 120px; text-align: right; }
+
 @media (max-width: 860px) {
   .input-grid { grid-template-columns: 1fr; }
   textarea { min-height: 160px; }

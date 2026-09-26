@@ -9,7 +9,7 @@
 <body>
 <header class="topbar">
   <h1>字幕校稿对齐</h1>
-  <p class="subtitle">逐行对白稿 × SRT 全局单调对齐 · SRT 时间轴重定时（校准点分段线性映射）· SRT 断行排版（宽度约束下枚举最优断点）· SRT 时间避让（重叠/过近字幕整体平移修整）· 双语 SRT 拆轨（每块两行拆分为中文轨/英文轨）· 双语术语核对（英文轨词边界找术语、中文轨核对指定译法）· SRT 版本差异审校（新旧两版按块序最小代价对齐）· 剪辑字幕重建（按素材剪辑区间裁切平移、乱序重叠去重合并）· 字幕阅读负载审查（最早出点优先的单通道阅读时间分配，标出读不完的逾期块）</p>
+  <p class="subtitle">逐行对白稿 × SRT 全局单调对齐 · SRT 时间轴重定时（校准点分段线性映射）· SRT 断行排版（宽度约束下枚举最优断点）· SRT 时间避让（重叠/过近字幕整体平移修整）· 双语 SRT 拆轨（每块两行拆分为中文轨/英文轨）· 双语术语核对（英文轨词边界找术语、中文轨核对指定译法）· SRT 版本差异审校（新旧两版按块序最小代价对齐）· 剪辑字幕重建（按素材剪辑区间裁切平移、乱序重叠去重合并）· 字幕阅读负载审查（最早出点优先的单通道阅读时间分配，标出读不完的逾期块）· 字幕分卷（无重叠组间切分，全局最小化各卷时长与目标的平方偏差）</p>
 </header>
 
 <main>
@@ -23,6 +23,7 @@
     <button type="button" id="tabDiff" class="tab" data-tab="diff">SRT 版本差异审校</button>
     <button type="button" id="tabRebuild" class="tab" data-tab="rebuild">剪辑字幕重建</button>
     <button type="button" id="tabReading" class="tab" data-tab="reading">字幕阅读负载审查</button>
+    <button type="button" id="tabVolume" class="tab" data-tab="volume">字幕分卷</button>
   </nav>
 
   <div id="viewAlign">
@@ -560,6 +561,73 @@
     </table>
   </section>
   </div><!-- /viewReading -->
+
+  <div id="viewVolume" class="hidden">
+  <section class="input-grid">
+    <div class="pane">
+      <div class="pane-head">
+        <label for="vlSrt">SRT 字幕（最多 200 块，按入点排序后分卷）</label>
+        <button type="button" class="ghost" id="vlSample">填入示例</button>
+      </div>
+      <textarea id="vlSrt" spellcheck="false"
+        placeholder="粘贴标准 SRT&#10;1&#10;00:00:01,000 --> 00:00:04,000&#10;你好，世界！"></textarea>
+    </div>
+    <div class="pane pane-help">
+      <div class="pane-head"><label>分卷规则</label></div>
+      <ul class="rules">
+        <li>输入标准 SRT（最多 <b>200</b> 块）、份数 <b>K（1～20）</b> 与最短/目标/最长时长（<b>正整数毫秒</b>，最短 ≤ 目标 ≤ 最长）。</li>
+        <li>块先按<b>入点</b>（同入点按<b>解析序位</b>）排序；时间区间<b>左闭右开</b>，直接或传递重叠的块划为同一组、<b>不可拆到不同卷</b>，只能在相邻无重叠组之间切分。</li>
+        <li>所有块恰好分入 <b>K 个非空连续卷</b>；卷时长 = 卷内<b>最晚出点 − 最早入点</b>，须落在 [最短, 最长] 内。</li>
+        <li><b>全局最小化</b>各卷时长与目标之差的<b>平方和</b>；同分时选「切分处下一卷入点序列」<b>字典序最小</b>的方案。</li>
+        <li>预览各卷<b>原起止时间、块数、时长</b>与<b>总分</b>；下载 ZIP 内含每卷一个 SRT：各块时间<b>减去该卷最早入点</b>、<b>保留正文</b>、从 1 编号。</li>
+        <li><b>无解</b>或存在<b>非正时长块</b>时报错、清空旧结果并禁用下载。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="controls">
+    <label class="gap-field">份数 K
+      <input type="number" id="vlParts" value="2" min="1" max="20" step="1">
+    </label>
+    <label class="gap-field">最短时长（毫秒）
+      <input type="number" id="vlMin" value="1000" min="1" step="1">
+    </label>
+    <label class="gap-field">目标时长（毫秒）
+      <input type="number" id="vlTarget" value="10000" min="1" step="1">
+    </label>
+    <label class="gap-field">最长时长（毫秒）
+      <input type="number" id="vlMax" value="60000" min="1" step="1">
+    </label>
+    <button type="button" id="vlRunBtn" class="primary">开始分卷</button>
+    <button type="button" id="vlClearBtn" class="ghost">清空</button>
+    <span id="vlStatus" class="status" role="status"></span>
+  </section>
+
+  <section id="vlSummary" class="summary hidden">
+    <span class="chip chip-match">卷数 <b id="vlCntVolumes">0</b></span>
+    <span class="chip">字幕块 <b id="vlCntBlocks">0</b></span>
+    <span class="chip">无重叠组 <b id="vlCntGroups">0</b></span>
+    <span class="chip">目标时长 <b id="vlTargetShown">0</b> ms</span>
+    <span class="chip chip-anchor">总分 <b id="vlTotalCost">0</b></span>
+    <button type="button" id="vlDownloadBtn" class="ghost" disabled>下载 ZIP</button>
+  </section>
+
+  <section id="vlResultWrap" class="result-wrap hidden">
+    <table id="vlTable">
+      <thead>
+        <tr>
+          <th class="col-rt-idx">卷号</th>
+          <th class="col-tc">原起止时间</th>
+          <th class="col-vl-num">块数</th>
+          <th class="col-vl-num">时长(ms)</th>
+          <th class="col-vl-num">偏差(ms)</th>
+          <th class="col-vl-cost">偏差²</th>
+        </tr>
+      </thead>
+      <tbody id="vlBody"></tbody>
+    </table>
+  </section>
+  </div><!-- /viewVolume -->
 </main>
 
 <script src="/static/app.js"></script>
@@ -571,5 +639,6 @@
 <script src="/static/diff.js"></script>
 <script src="/static/rebuild.js"></script>
 <script src="/static/reading.js"></script>
+<script src="/static/volume.js"></script>
 </body>
 </html>
