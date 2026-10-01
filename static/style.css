@@ -53,6 +53,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 60px; }
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
 }

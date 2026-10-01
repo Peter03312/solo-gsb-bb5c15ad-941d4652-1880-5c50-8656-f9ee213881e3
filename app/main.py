@@ -22,6 +22,7 @@ from .retime import CalibPoint, build_srt, parse_timecode, retime_subtitles
 from .split import SWITCH_COST, build_split_srt, split_subtitles
 from .termcheck import check_terms, parse_glossary
 from .textnorm import normalize_text
+from .volumes import build_volumes_zip, plan_volumes, validate_positive_duration
 
 MAX_ITEMS = 2000          # 每侧条目数上限，防止 DP 规模过大导致请求过久
 MAX_RAW_BYTES = 2 * 1024 * 1024
@@ -36,6 +37,10 @@ MAX_CLIPS = 2000          # 剪辑字幕重建素材片段数上限
 MAX_TERMS = 2000          # 双语术语核对词表条目数上限
 MIN_READING_SPEED = 4     # 阅读速度下限（显示宽度单位/秒）
 MAX_READING_SPEED = 30    # 阅读速度上限（显示宽度单位/秒）
+MAX_VOLUME_BLOCKS = 200   # 字幕分卷输入块数上限
+MIN_VOLUMES = 1           # 字幕分卷份數下限
+MAX_VOLUMES = 20          # 字幕分卷份數上限
+MAX_DURATION_MS = 86_400_000  # 字幕分卷时长参数上限（24 小时，毫秒）
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -959,6 +964,115 @@ def api_reading_csv(req: ReadingRequest):
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": 'attachment; filename="reading.csv"'
+        },
+    )
+
+
+class VolumeSplitRequest(BaseModel):
+    srt: str = Field(default="", description="待分卷 SRT 字幕（最多 200 块）")
+    k: int = Field(
+        default=1,
+        ge=MIN_VOLUMES,
+        le=MAX_VOLUMES,
+        description="份数 K（1～20），所有块恰好分入 K 个非空连续卷",
+    )
+    min_ms: int = Field(
+        ...,
+        ge=1,
+        le=MAX_DURATION_MS,
+        description="每卷最短时长（正整数毫秒，且 ≤ 目标时长）",
+    )
+    target_ms: int = Field(
+        ...,
+        ge=1,
+        le=MAX_DURATION_MS,
+        description="每卷目标时长（正整数毫秒，最短 ≤ 目标 ≤ 最长）",
+    )
+    max_ms: int = Field(
+        ...,
+        ge=1,
+        le=MAX_DURATION_MS,
+        description="每卷最长时长（正整数毫秒，且 ≥ 目标时长）",
+    )
+
+
+def _build_volume_plan(req: VolumeSplitRequest):
+    if len(req.srt.encode("utf-8", errors="ignore")) > MAX_RAW_BYTES:
+        raise HTTPException(400, "SRT 超过 2 MB 大小限制")
+    if not MIN_VOLUMES <= req.k <= MAX_VOLUMES:
+        raise HTTPException(
+            400, f"份数 K 须为 {MIN_VOLUMES}～{MAX_VOLUMES} 之间的整数"
+        )
+    for name, val in (
+        ("最短时长", req.min_ms),
+        ("目标时长", req.target_ms),
+        ("最长时长", req.max_ms),
+    ):
+        if not isinstance(val, int) or val <= 0 or val > MAX_DURATION_MS:
+            raise HTTPException(
+                400, f"{name}须为 1～{MAX_DURATION_MS} 毫秒之间的正整数"
+            )
+    if not req.min_ms <= req.target_ms <= req.max_ms:
+        raise HTTPException(400, "时长参数须满足 最短时长 ≤ 目标时长 ≤ 最长时长")
+    try:
+        subs = parse_srt(req.srt)
+    except ValueError as exc:
+        raise HTTPException(400, f"SRT 解析失败：{exc}") from exc
+    if not subs:
+        raise HTTPException(400, "SRT 内容为空，请粘贴字幕")
+    if len(subs) > MAX_VOLUME_BLOCKS:
+        raise HTTPException(
+            400,
+            f"字幕块数超过 {MAX_VOLUME_BLOCKS} 块的上限，请拆分后再分卷",
+        )
+    try:
+        validate_positive_duration(subs)
+        return plan_volumes(
+            subs, req.k, req.min_ms, req.target_ms, req.max_ms
+        )
+    except ValueError as exc:
+        raise HTTPException(400, f"分卷失败：{exc}") from exc
+
+
+def _volume_json(vol) -> dict:
+    return {
+        "number": vol.number,
+        "start_tc": vol.start_tc,
+        "end_tc": vol.end_tc,
+        "start_ms": vol.start_ms,
+        "end_ms": vol.end_ms,
+        "block_count": len(vol.items),
+        "duration_ms": vol.duration_ms,
+        "target_ms": vol.target_ms,
+        "score": vol.score,
+    }
+
+
+@app.post("/api/volumes")
+def api_volumes(req: VolumeSplitRequest):
+    volumes = _build_volume_plan(req)
+    return {
+        "summary": {
+            "k": req.k,
+            "total_blocks": sum(len(v.items) for v in volumes),
+            "min_ms": req.min_ms,
+            "target_ms": req.target_ms,
+            "max_ms": req.max_ms,
+            "total_score": sum(v.score for v in volumes),
+        },
+        "volumes": [_volume_json(v) for v in volumes],
+    }
+
+
+@app.post("/api/volumes.zip")
+def api_volumes_zip(req: VolumeSplitRequest):
+    volumes = _build_volume_plan(req)
+    data = build_volumes_zip(volumes)
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="subtitle-volumes.zip"'
         },
     )
 

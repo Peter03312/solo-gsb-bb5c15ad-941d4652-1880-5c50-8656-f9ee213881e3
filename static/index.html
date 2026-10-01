@@ -9,7 +9,7 @@
 <body>
 <header class="topbar">
   <h1>字幕校稿对齐</h1>
-  <p class="subtitle">逐行对白稿 × SRT 全局单调对齐 · SRT 时间轴重定时（校准点分段线性映射）· SRT 断行排版（宽度约束下枚举最优断点）· SRT 时间避让（重叠/过近字幕整体平移修整）· 双语 SRT 拆轨（每块两行拆分为中文轨/英文轨）· 双语术语核对（英文轨词边界找术语、中文轨核对指定译法）· SRT 版本差异审校（新旧两版按块序最小代价对齐）· 剪辑字幕重建（按素材剪辑区间裁切平移、乱序重叠去重合并）· 字幕阅读负载审查（最早出点优先的单通道阅读时间分配，标出读不完的逾期块）</p>
+  <p class="subtitle">逐行对白稿 × SRT 全局单调对齐 · SRT 时间轴重定时（校准点分段线性映射）· SRT 断行排版（宽度约束下枚举最优断点）· SRT 时间避让（重叠/过近字幕整体平移修整）· 双语 SRT 拆轨（每块两行拆分为中文轨/英文轨）· 双语术语核对（英文轨词边界找术语、中文轨核对指定译法）· SRT 版本差异审校（新旧两版按块序最小代价对齐）· 剪辑字幕重建（按素材剪辑区间裁切平移、乱序重叠去重合并）· 字幕阅读负载审查（最早出点优先的单通道阅读时间分配，标出读不完的逾期块）· 字幕分卷（重叠块不拆开、按最短/目标/最长时长切成 K 卷并打包 ZIP）</p>
 </header>
 
 <main>
@@ -23,6 +23,7 @@
     <button type="button" id="tabDiff" class="tab" data-tab="diff">SRT 版本差异审校</button>
     <button type="button" id="tabRebuild" class="tab" data-tab="rebuild">剪辑字幕重建</button>
     <button type="button" id="tabReading" class="tab" data-tab="reading">字幕阅读负载审查</button>
+    <button type="button" id="tabVolumes" class="tab" data-tab="volumes">字幕分卷</button>
   </nav>
 
   <div id="viewAlign">
@@ -560,6 +561,74 @@
     </table>
   </section>
   </div><!-- /viewReading -->
+
+  <div id="viewVolumes" class="hidden">
+  <section class="input-grid">
+    <div class="pane">
+      <div class="pane-head">
+        <label for="vlSrt">SRT 字幕（最多 200 块；按入点、解析序位排序后切分）</label>
+        <button type="button" class="ghost" id="vlSample">填入示例</button>
+      </div>
+      <textarea id="vlSrt" spellcheck="false"
+        placeholder="粘贴标准 SRT&#10;1&#10;00:00:01,000 --> 00:00:03,000&#10;你好，世界！"></textarea>
+    </div>
+    <div class="pane pane-help">
+      <div class="pane-head"><label>分卷规则</label></div>
+      <ul class="rules">
+        <li>全部块先按<b>入点升序、同入点按解析序位</b>排序；时间区间<b>左闭右开</b>，<b>直接或传递重叠</b>的块不可分卷，切分只能发生在<b>相邻无重叠组</b>之间。</li>
+        <li>所有块恰好分入 <b>K（1～20）个非空连续卷</b>；卷时长 = 卷内最晚出点 − 最早入点，须在<b>最短～最长</b>时长之间。</li>
+        <li>全局最小化各卷<b>（时长 − 目标时长）² 之和</b>；总分相同时，取<b>切分处下一卷入点序列</b>字典序最小的方案（切点尽量靠前）。</li>
+        <li>下载 ZIP 内含各卷 SRT：每卷时间码<b>减去本卷最早入点</b>、保留正文并<b>从 1 编号</b>（volume01.srt、volume02.srt……）。</li>
+        <li><b>无解</b>（重叠段不够 K 份或无满足时长约束的切法）或<b>非正时长块</b>会报错、<b>清空旧结果并禁用下载</b>。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="controls">
+    <label class="gap-field">份数 K（1～20）
+      <input type="number" id="vlK" value="3" min="1" max="20" step="1">
+    </label>
+    <label class="gap-field">最短时长（毫秒）
+      <input type="number" id="vlMin" value="1000" min="1" step="100">
+    </label>
+    <label class="gap-field">目标时长（毫秒）
+      <input type="number" id="vlTarget" value="5000" min="1" step="100">
+    </label>
+    <label class="gap-field">最长时长（毫秒）
+      <input type="number" id="vlMax" value="20000" min="1" step="100">
+    </label>
+    <button type="button" id="vlRunBtn" class="primary">开始分卷</button>
+    <button type="button" id="vlClearBtn" class="ghost">清空</button>
+    <span id="vlStatus" class="status" role="status"></span>
+  </section>
+
+  <section id="vlSummary" class="summary hidden">
+    <span class="chip chip-match">卷数 <b id="vlCntK">0</b></span>
+    <span class="chip">字幕块 <b id="vlCntBlocks">0</b></span>
+    <span class="chip">时长范围 <b id="vlRange">-</b> ms</span>
+    <span class="chip">目标 <b id="vlTargetShown">0</b> ms</span>
+    <span class="chip chip-anchor">总分 <b id="vlTotalScore">0</b></span>
+    <span class="dl-btns">
+      <button type="button" id="vlDownloadBtn" class="ghost">下载分卷 ZIP</button>
+    </span>
+  </section>
+
+  <section id="vlResultWrap" class="result-wrap hidden">
+    <table id="vlTable">
+      <thead>
+        <tr>
+          <th class="col-rt-idx">卷号</th>
+          <th class="col-tc">原入点</th>
+          <th class="col-tc">原出点</th>
+          <th class="col-rd-num">块数</th>
+          <th class="col-rd-num">时长(ms)</th>
+          <th class="col-rd-num">本分</th>
+        </tr>
+      </thead>
+      <tbody id="vlBody"></tbody>
+    </table>
+  </section>
+  </div><!-- /viewVolumes -->
 </main>
 
 <script src="/static/app.js"></script>
@@ -571,5 +640,6 @@
 <script src="/static/diff.js"></script>
 <script src="/static/rebuild.js"></script>
 <script src="/static/reading.js"></script>
+<script src="/static/volumes.js"></script>
 </body>
 </html>
